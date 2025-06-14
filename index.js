@@ -15,10 +15,30 @@ function run() {
             h: window.innerHeight,
         });
     });
+    const ac = new AudioContext();
+    const osc = ac.createOscillator();
+    osc.connect(ac.destination);
 
-    // wait for mouse move to start
+    worker.addEventListener('message', (ev) => {
+        switch (ev.data.type) {
+            case 'init':
+                osc.start();
+                break;
+            case 'waveform':
+                const { real, imag } = ev.data;
+
+                const wave = ac.createPeriodicWave(real, imag);
+                osc.setPeriodicWave(wave);
+                break;
+            case 'sequence':
+                const vals = ev.data.values;
+                break;
+        }
+    });
+
+    // wait for mouse clip to start
     window.addEventListener(
-        'mousemove',
+        'mousedown',
         () => {
             worker.postMessage(
                 {
@@ -47,17 +67,4 @@ function run() {
 
     window.addEventListener('mousedown', onMouseEvent);
     window.addEventListener('mouseup', onMouseEvent);
-
-    worker.addEventListener('message', (ev) => {
-        const { real, imag } = ev.data;
-
-        const ac = new AudioContext();
-        const wave = ac.createPeriodicWave(real, imag);
-
-        const osc = ac.createOscillator();
-        osc.setPeriodicWave(wave);
-        osc.connect(ac.destination);
-
-        osc.start();
-    });
 }

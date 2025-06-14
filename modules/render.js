@@ -17,24 +17,31 @@ const COLORS = {
     highlight: '#c8b1e4',
 };
 
+const BPM = 120;
+
 // standard line width unit
 const U = 2;
 
 const waveform = new StepEditor(
     new BoundingBox(0, 0, 0.5, 0.2),
     30,
-    drawStepEditor
-);
-const sequencer = new StepEditor(
-    new BoundingBox(0.5, 0, 0.5, 0.2),
-    5,
+    0,
+    updateWaveform,
     drawStepEditor
 );
 
-waveform.steps.forEach((step, k) => {
-    step.value =
-        0.5 * (-Math.cos((k / waveform.steps.length) * 2 * Math.PI) - 1) + 1;
-});
+const sequencer = new StepEditor(
+    new BoundingBox(0.5, 0, 0.5, 0.2),
+    5,
+    12,
+    updateSequence,
+    drawStepEditor
+);
+
+for (let j = 0; j < waveform.steps.length; j++) {
+    waveform.steps[j] =
+        0.5 * (-Math.cos((j / waveform.steps.length) * 2 * Math.PI) - 1) + 1;
+}
 
 const guiElements = [waveform, sequencer];
 
@@ -81,23 +88,32 @@ function drawStepEditor(editor) {
         pxBounds.h -= U * 2;
         pxBounds.y += U * 2;
 
-        editor.steps.forEach((step, k) => {
+        let edited = false;
+        for (let k = 0; k < editor.steps.length; k++) {
             const bounds = new BoundingBox(
                 pxBounds.x + (k / editor.steps.length) * pxBounds.w,
                 pxBounds.y,
                 pxBounds.w / editor.steps.length,
                 pxBounds.h
             );
+
             const active = bounds.collidesWith(mouse) && mouse.down;
             if (active) {
-                step.value = normalize(mouse.y, bounds.y + bounds.h, bounds.y);
+                const oldValue = editor.steps[k];
+
+                editor.set(
+                    k,
+                    normalize(mouse.y, bounds.y + bounds.h, bounds.y, true)
+                );
+
+                edited = editor.steps[k] !== oldValue;
             }
 
             const bar = new BoundingBox(
                 pxBounds.x + (k / editor.steps.length) * pxBounds.w,
-                pxBounds.y + (1 - step.value) * pxBounds.h,
+                pxBounds.y + (1 - editor.steps[k]) * pxBounds.h,
                 pxBounds.w / editor.steps.length,
-                step.value * pxBounds.h
+                editor.steps[k] * pxBounds.h
             );
             const highlighted = active || bar.collidesWith(mouse);
 
@@ -116,7 +132,11 @@ function drawStepEditor(editor) {
             ctx.lineWidth = U;
             ctx.strokeStyle = COLORS.ter;
             ctx.stroke();
-        });
+        }
+
+        if (edited) {
+            editor.update();
+        }
     };
 }
 
@@ -130,16 +150,24 @@ function resize(w, h) {
 }
 
 /**
- * Use values in step editor to create PeriodicWave
+ * Use values in step editor to create PeriodicWave and send to main thread
  */
-function getWaveform() {
+function updateWaveform() {
     // signal normalized to [-1.0, 1.0]
-    const x = waveform.steps.map((step) => step.value * 2 - 1);
+    const x = waveform.getSigned();
     const [real, imag] = DFT(x);
 
     postMessage({
+        type: 'waveform',
         real: real,
         imag: imag,
+    });
+}
+
+function updateSequence() {
+    postMessage({
+        type: 'sequence',
+        values: sequencer.steps,
     });
 }
 
@@ -150,6 +178,7 @@ self.addEventListener('message', (ev) => {
             ctx = canv.getContext('2d');
 
             resize(ev.data.w, ev.data.h);
+            postMessage({ type: 'init' });
 
             drawFrame(performance.now());
             break;
@@ -162,11 +191,9 @@ self.addEventListener('message', (ev) => {
             break;
         case 'mousedown':
             mouse.down = true;
-
             break;
         case 'mouseup':
             mouse.down = false;
-            getWaveform();
             break;
     }
 });

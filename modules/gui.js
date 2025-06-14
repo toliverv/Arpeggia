@@ -1,6 +1,10 @@
 // interpret number x within two bounds as normalized value (from 0 to 1)
-export function normalize(x, min, max) {
-    return (x - min) / (max - min);
+export function normalize(x, min, max, confine = false) {
+    const ans = (x - min) / (max - min);
+    if (!confine) return ans;
+    else if (ans > 1) return 1;
+    else if (ans < 0) return 0;
+    else return ans;
 }
 
 // round normalized floating point to nearest fraction with denominator d
@@ -64,26 +68,22 @@ export class BoundingBox {
     }
 }
 
-class Step {
-    constructor(value = 0, active = false) {
-        this.value = value;
-        this.active = active;
-    }
-}
-
 export class StepEditor {
     /**
      * Generalize StepEditor windows
      * @param {BoundingBox} box
+     * @param {number} numSteps
+     * @param {number} grid
+     * @param {()=>void} update
+     * @param {()=>()=>void} draw
      */
-    constructor(box, numSteps, draw) {
+    constructor(box, numSteps, grid = 0, update, draw) {
         this.box = box;
-        this.steps = [];
+        this.steps = new Array(numSteps).fill(0);
 
-        for (let i = 0; i < numSteps; i++) {
-            this.steps.push(new Step());
-        }
+        this.grid = grid;
 
+        this.update = update;
         this.draw = draw(this);
         this.gradient = null;
     }
@@ -107,28 +107,15 @@ export class StepEditor {
         this.gradient.addColorStop(1, color2);
     }
 
-    mouseEvent(mouseX, mouseY, mouseDown) {
-        if (!this.box.collidesWith(mouseX, mouseY)) return;
+    set(n, value) {
+        if (this.grid) this.steps[n] = roundFract(value, this.grid);
+        else this.steps[n] = value;
+    }
 
-        this.steps.forEach((step) => {
-            step.active = false;
-        });
-
-        const targettedStep =
-            steps[
-                Math.floor(
-                    normalize(mouseX, this.box.x, this.box.x + this.box.w) *
-                        this.steps
-                )
-            ];
-
-        if (mouseDown) {
-            targettedStep.active = mouseDown;
-            targettedStep.value = normalize(
-                mouseY,
-                this.box.y + this.box.h,
-                this.box.y
-            );
-        }
+    /**
+     * @returns {number[]} Signed ([-1, 1]) float values of each step
+     */
+    getSigned() {
+        return this.steps.map((x) => x * 2 - 1);
     }
 }
