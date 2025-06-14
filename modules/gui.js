@@ -1,6 +1,6 @@
 // interpret number x within two bounds as normalized value (from 0 to 1)
-function normalize(x, min, max) {
-    (x - min) / (max - min);
+export function normalize(x, min, max) {
+    return (x - min) / (max - min);
 }
 
 // round normalized floating point to nearest fraction with denominator d
@@ -30,7 +30,22 @@ export class BoundingBox {
      * @returns {Boolean}
      */
     collidesWith(x, y) {
-        return this.x <= x < this.x + this.w && this.y <= y < this.y + this.h;
+        return this.x <= x <= this.x + this.w && this.y <= y <= this.y + this.h;
+    }
+
+    /**
+     * @overload
+     * @param {Object{x:number,y:number}} obj
+     * @overload
+     * @returns {Boolean}
+     */
+    collidesWith(obj) {
+        return (
+            this.x <= obj.x &&
+            obj.x < this.x + this.w &&
+            this.y <= obj.y &&
+            obj.y < this.y + this.h
+        );
     }
 
     /**
@@ -50,9 +65,8 @@ export class BoundingBox {
 }
 
 class Step {
-    constructor(value = 0, highlighted = false, active = false) {
+    constructor(value = 0, active = false) {
         this.value = value;
-        this.highlighted = highlighted;
         this.active = active;
     }
 }
@@ -71,13 +85,32 @@ export class StepEditor {
         }
 
         this.draw = draw(this);
+        this.gradient = null;
+    }
+
+    /**
+     * Sets property `gradient` to reusable linear gradient to draw bars
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {string} color1
+     * @param {string} color2
+     * @param {number} canvasHeight
+     */
+    createGradient(ctx, color1, color2, canvasHeight) {
+        this.gradient = ctx.createLinearGradient(
+            0,
+            (this.box.y + this.box.h) * canvasHeight,
+            0,
+            this.box.y * canvasHeight
+        );
+
+        this.gradient.addColorStop(0, color1);
+        this.gradient.addColorStop(1, color2);
     }
 
     mouseEvent(mouseX, mouseY, mouseDown) {
         if (!this.box.collidesWith(mouseX, mouseY)) return;
 
         this.steps.forEach((step) => {
-            step.highlighted = false;
             step.active = false;
         });
 
@@ -88,8 +121,6 @@ export class StepEditor {
                         this.steps
                 )
             ];
-
-        targettedStep.highlighted = true;
 
         if (mouseDown) {
             targettedStep.active = mouseDown;

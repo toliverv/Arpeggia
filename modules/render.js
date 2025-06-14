@@ -1,6 +1,10 @@
-import { StepEditor, BoundingBox } from './gui.js';
+import { StepEditor, BoundingBox, normalize } from './gui.js';
+import { DFT } from './math.js';
 
-let handler, canv;
+let handler;
+
+/**@type {HTMLCanvasElement} */
+let canv;
 
 /** @type {CanvasRenderingContext2D} */
 let ctx;
@@ -18,7 +22,7 @@ const U = 2;
 
 const waveform = new StepEditor(
     new BoundingBox(0, 0, 0.5, 0.2),
-    20,
+    30,
     drawStepEditor
 );
 const sequencer = new StepEditor(
@@ -27,10 +31,14 @@ const sequencer = new StepEditor(
     drawStepEditor
 );
 
-waveform.steps[2].value = 0.5;
-waveform.steps[3].value = 1;
+waveform.steps.forEach((step, k) => {
+    step.value =
+        0.5 * (-Math.cos((k / waveform.steps.length) * 2 * Math.PI) - 1) + 1;
+});
 
 const guiElements = [waveform, sequencer];
+
+const mouse = { x: -1, y: -1, down: undefined };
 
 let t, dt;
 function drawFrame(timestamp) {
@@ -46,24 +54,6 @@ function drawFrame(timestamp) {
     });
 
     handler = self.requestAnimationFrame(drawFrame);
-}
-
-function drawBall(b) {
-    b.pos.x += b.vel.x * dt;
-    b.pos.y += b.vel.y * dt;
-
-    checkCollisions(b);
-
-    b.vel.y += G * dt;
-
-    ctx.beginPath();
-    ctx.arc(b.pos.x, b.pos.y, b.r, 0, 2 * Math.PI, false);
-    ctx.fillStyle = b.color;
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = 'black';
-    ctx.stroke();
-    // ctx.closePath()
 }
 
 /**
@@ -82,30 +72,45 @@ function drawStepEditor(editor) {
         ctx.fill();
 
         ctx.strokeStyle = COLORS.sec;
-        ctx.lineWidth = U * 2;
+        ctx.lineWidth = U;
         ctx.stroke();
 
-        pxBounds.h -= U * 4;
-        pxBounds.w -= U * 4;
-        pxBounds.x += U * 2;
+        pxBounds.w -= U * 6;
+        pxBounds.x += U * 3;
+
+        pxBounds.h -= U * 2;
         pxBounds.y += U * 2;
 
         editor.steps.forEach((step, k) => {
-            let x = pxBounds.x + (k / editor.steps.length) * pxBounds.w,
-                y = pxBounds.y + (1 - step.value) * pxBounds.h,
-                w = pxBounds.w / editor.steps.length,
-                h = step.value * pxBounds.h;
+            const bounds = new BoundingBox(
+                pxBounds.x + (k / editor.steps.length) * pxBounds.w,
+                pxBounds.y,
+                pxBounds.w / editor.steps.length,
+                pxBounds.h
+            );
+            const active = bounds.collidesWith(mouse) && mouse.down;
+            if (active) {
+                step.value = normalize(mouse.y, bounds.y + bounds.h, bounds.y);
+            }
+
+            const bar = new BoundingBox(
+                pxBounds.x + (k / editor.steps.length) * pxBounds.w,
+                pxBounds.y + (1 - step.value) * pxBounds.h,
+                pxBounds.w / editor.steps.length,
+                step.value * pxBounds.h
+            );
+            const highlighted = active || bar.collidesWith(mouse);
 
             ctx.beginPath();
-            ctx.rect(x, y, w, h);
+            ctx.rect(bar.x, bar.y, bar.w, bar.h);
             ctx.closePath();
 
-            ctx.fillStyle = COLORS.sec;
+            ctx.fillStyle = highlighted ? COLORS.highlight : editor.gradient;
             ctx.fill();
 
             ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(x + w, y);
+            ctx.moveTo(bar.x, bar.y);
+            ctx.lineTo(bar.x + bar.w, bar.y);
             ctx.closePath();
 
             ctx.lineWidth = U;
@@ -115,28 +120,53 @@ function drawStepEditor(editor) {
     };
 }
 
-function resize(size) {
-    canv.width = size[0];
-    canv.height = size[1];
+function resize(w, h) {
+    canv.width = w;
+    canv.height = h;
+
+    guiElements.forEach((elem) => {
+        elem.createGradient(ctx, COLORS.prim, COLORS.sec, canv.height);
+    });
 }
 
-function click(pos) {}
+/**
+ * Use values in step editor to create PeriodicWave
+ */
+function getWaveform() {
+    // signal normalized to [-1.0, 1.0]
+    const x = waveform.steps.map((step) => step.value * 2 - 1);
+    const [real, imag] = DFT(x);
 
-function handleMessage(e) {
-    switch (e.data['type']) {
+    postMessage({
+        real: real,
+        imag: imag,
+    });
+}
+
+self.addEventListener('message', (ev) => {
+    switch (ev.data.type) {
         case 'start':
-            canv = e.data['canvas'];
+            canv = ev.data.canvas;
             ctx = canv.getContext('2d');
+
+            resize(ev.data.w, ev.data.h);
 
             drawFrame(performance.now());
             break;
         case 'resize':
-            resize(e.data['size']);
+            resize(ev.data.w, ev.data.h);
             break;
-        case 'click':
-            click(e.data['pos']);
+        case 'mousemove':
+            mouse.x = ev.data.x;
+            mouse.y = ev.data.y;
+            break;
+        case 'mousedown':
+            mouse.down = true;
+
+            break;
+        case 'mouseup':
+            mouse.down = false;
+            getWaveform();
             break;
     }
-}
-
-self.addEventListener('message', handleMessage);
+});
